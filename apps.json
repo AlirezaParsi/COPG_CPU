@@ -1,0 +1,22 @@
+{
+  "blacklist": [
+    {
+      "package_name": "com.iranian.bank",
+      "app_name": "example bank 1"
+    },
+    {
+      "package_name": "com.mellat.bank", 
+      "app_name": "Example bank 2"
+    }
+  ],
+  "gamelist": [
+    {
+      "package_name": "com.gameloft.android.ANMP.GloftA8HM",
+      "app_name": "Asphalt 8"
+    },
+    {
+      "package_name": "com.mojang.minecraftpe",
+      "app_name": "Minecraft"
+    }
+  ]
+}
