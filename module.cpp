@@ -7,6 +7,7 @@
 #include <unistd.h>
 #include <android/log.h>
 #include <sys/stat.h>
+#include <sys/mount.h>
 
 using json = nlohmann::json;
 
@@ -93,20 +94,14 @@ static void companion(int fd) {
         int result = -1;
         
         if (command == "unmount_spoof") {
-            struct stat st;
-            if (stat("/proc/cpuinfo", &st) == 0) {
-                result = umount2("/proc/cpuinfo", MNT_DETACH);
-                if (result == 0) {
-                    LOGD("[COMPANION] Unmount successful");
-                }
-            } else {
-                result = 0; 
+            result = umount2("/proc/cpuinfo", MNT_DETACH);
+            if (result == 0) {
+                LOGD("[COMPANION] Unmount successful");
             }
             
         } else if (command == "mount_spoof") {
             if (access(spoof_file_path.c_str(), F_OK) == 0) {
                 umount2("/proc/cpuinfo", MNT_DETACH);
-                
                 result = mount(spoof_file_path.c_str(), "/proc/cpuinfo", nullptr, MS_BIND, nullptr);
                 if (result == 0) {
                     LOGD("[COMPANION] Mount successful");
