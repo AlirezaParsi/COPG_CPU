@@ -7,7 +7,6 @@
 #include <unistd.h>
 #include <android/log.h>
 #include <sys/stat.h>
-#include <sys/mount.h>
 
 using json = nlohmann::json;
 
@@ -17,7 +16,6 @@ using json = nlohmann::json;
 
 static const std::string config_path = "/data/adb/modules/COPG_CPU/apps.json";
 static const std::string spoof_file_path = "/data/adb/modules/COPG_CPU/cpuinfo_spoof";
-static bool spoof_active = false;
 
 class ConfigManager {
 private:
@@ -29,7 +27,6 @@ public:
     bool loadConfig() {
         struct stat st;
         if (stat(config_path.c_str(), &st) != 0) {
-            LOGE("Config file not found");
             return false;
         }
         
@@ -39,7 +36,6 @@ public:
         
         std::ifstream file(config_path);
         if (!file.is_open()) {
-            LOGE("Failed to open config file");
             return false;
         }
         
@@ -71,7 +67,6 @@ public:
             return true;
             
         } catch (const std::exception& e) {
-            LOGE("JSON error: %s", e.what());
             return false;
         }
     }
@@ -88,8 +83,6 @@ public:
 static ConfigManager config_manager;
 
 static void companion(int fd) {
-    LOGD("[COMPANION] Started");
-    
     char buffer[256];
     ssize_t bytes = read(fd, buffer, sizeof(buffer)-1);
     
@@ -97,38 +90,27 @@ static void companion(int fd) {
         buffer[bytes] = '\0';
         std::string command = buffer;
         
-        LOGD("[COMPANION] Received command: %s", command.c_str());
-        
         int result = -1;
         
-        if (command == "mount_spoof") {
+        if (command == "unmount_spoof") {
+            struct stat st;
+            if (stat("/proc/cpuinfo", &st) == 0) {
+                result = umount2("/proc/cpuinfo", MNT_DETACH);
+                if (result == 0) {
+                    LOGD("[COMPANION] Unmount successful");
+                }
+            } else {
+                result = 0; 
+            }
+            
+        } else if (command == "mount_spoof") {
             if (access(spoof_file_path.c_str(), F_OK) == 0) {
-                chmod(spoof_file_path.c_str(), 0444);
-                chown(spoof_file_path.c_str(), 0, 0);
-                system("chcon u:object_r:system_file:s0 /data/adb/modules/COPG_CPU/cpuinfo_spoof");
+                umount2("/proc/cpuinfo", MNT_DETACH);
                 
                 result = mount(spoof_file_path.c_str(), "/proc/cpuinfo", nullptr, MS_BIND, nullptr);
                 if (result == 0) {
-                    spoof_active = true;
                     LOGD("[COMPANION] Mount successful");
-                } else {
-                    LOGE("[COMPANION] Mount failed: %s", strerror(errno));
                 }
-            } else {
-                LOGE("[COMPANION] Spoof file not found: %s", spoof_file_path.c_str());
-            }
-            
-        } else if (command == "unmount_spoof") {
-            if (spoof_active) {
-                result = umount2("/proc/cpuinfo", MNT_DETACH);
-                if (result == 0) {
-                    spoof_active = false;
-                    LOGD("[COMPANION] Unmount successful");
-                } else {
-                    LOGE("[COMPANION] Unmount failed: %s", strerror(errno));
-                }
-            } else {
-                result = 0;
             }
         }
         
@@ -152,6 +134,7 @@ public:
         }
         
         const char* package_name = env->GetStringUTFChars(args->nice_name, nullptr);
+        
         config_manager.loadConfig();
         
         if (config_manager.isBlacklisted(package_name)) {
@@ -164,6 +147,7 @@ public:
         }
         
         env->ReleaseStringUTFChars(args->nice_name, package_name);
+        
         api->setOption(zygisk::DLCLOSE_MODULE_LIBRARY);
     }
 
@@ -174,7 +158,6 @@ private:
     bool executeCompanionCommand(const std::string& command) {
         int fd = api->connectCompanion();
         if (fd < 0) {
-            LOGE("Failed to connect to companion");
             return false;
         }
         
