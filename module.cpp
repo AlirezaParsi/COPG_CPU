@@ -15,25 +15,14 @@ using json = nlohmann::json;
 #define LOGD(...) __android_log_print(ANDROID_LOG_DEBUG, LOG_TAG, __VA_ARGS__)
 #define LOGE(...) __android_log_print(ANDROID_LOG_ERROR, LOG_TAG, __VA_ARGS__)
 
-struct AppInfo {
-    std::string package_name;
-    std::string app_name;
-};
-
-struct ModuleConfig {
-    std::vector<AppInfo> blacklist;
-    std::vector<AppInfo> gamelist;
-    std::unordered_set<std::string> blacklist_packages;
-    std::unordered_set<std::string> gamelist_packages;
-};
-
 static const std::string config_path = "/data/adb/modules/COPG_CPU/apps.json";
 static const std::string spoof_file_path = "/data/adb/modules/COPG_CPU/cpuinfo_spoof";
 static bool spoof_active = false;
 
 class ConfigManager {
 private:
-    ModuleConfig config;
+    std::unordered_set<std::string> blacklist_packages;
+    std::unordered_set<std::string> gamelist_packages;
     time_t last_mtime = 0;
 
 public:
@@ -57,23 +46,28 @@ public:
         try {
             json j = json::parse(file);
             
-            config.blacklist = j["blacklist"].get<std::vector<AppInfo>>();
-            config.gamelist = j["gamelist"].get<std::vector<AppInfo>>();
+            blacklist_packages.clear();
+            gamelist_packages.clear();
             
-            config.blacklist_packages.clear();
-            config.gamelist_packages.clear();
-            
-            for (const auto& app : config.blacklist) {
-                config.blacklist_packages.insert(app.package_name);
+            if (j.contains("blacklist") && j["blacklist"].is_array()) {
+                for (const auto& item : j["blacklist"]) {
+                    if (item.contains("package_name") && item["package_name"].is_string()) {
+                        blacklist_packages.insert(item["package_name"].get<std::string>());
+                    }
+                }
             }
             
-            for (const auto& app : config.gamelist) {
-                config.gamelist_packages.insert(app.package_name);
+            if (j.contains("gamelist") && j["gamelist"].is_array()) {
+                for (const auto& item : j["gamelist"]) {
+                    if (item.contains("package_name") && item["package_name"].is_string()) {
+                        gamelist_packages.insert(item["package_name"].get<std::string>());
+                    }
+                }
             }
             
             last_mtime = st.st_mtime;
             LOGD("Config loaded: %zu blacklist, %zu gamelist", 
-                 config.blacklist.size(), config.gamelist.size());
+                 blacklist_packages.size(), gamelist_packages.size());
             return true;
             
         } catch (const std::exception& e) {
@@ -83,11 +77,11 @@ public:
     }
     
     bool isBlacklisted(const std::string& pkg) const {
-        return config.blacklist_packages.count(pkg) > 0;
+        return blacklist_packages.count(pkg) > 0;
     }
     
     bool isGamelisted(const std::string& pkg) const {
-        return config.gamelist_packages.count(pkg) > 0;
+        return gamelist_packages.count(pkg) > 0;
     }
 };
 
@@ -116,7 +110,7 @@ static void companion(int fd) {
                 result = mount(spoof_file_path.c_str(), "/proc/cpuinfo", nullptr, MS_BIND, nullptr);
                 if (result == 0) {
                     spoof_active = true;
-                    LOGD("[COMPANION] Mount successful with proper permissions");
+                    LOGD("[COMPANION] Mount successful");
                 } else {
                     LOGE("[COMPANION] Mount failed: %s", strerror(errno));
                 }
@@ -134,7 +128,7 @@ static void companion(int fd) {
                     LOGE("[COMPANION] Unmount failed: %s", strerror(errno));
                 }
             } else {
-                result = 0; 
+                result = 0;
             }
         }
         
