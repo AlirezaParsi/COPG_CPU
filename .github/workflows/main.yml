@@ -98,77 +98,70 @@ jobs:
 
       - name: Verify builds
         run: |
-          echo "Checking build outputs..."
           if [ ! -f "build/arm64-v8a/libspoof.so" ] || [ ! -f "build/armeabi-v7a/libspoof.so" ]; then
             echo "Error: Libraries not built!"
             exit 1
           fi
-          echo "Builds verified successfully!"
 
       - name: Prepare module structure
         run: |
           mkdir -p module/zygisk module/META-INF/com/google/android
           
-          
           cp build/arm64-v8a/libspoof.so module/zygisk/arm64-v8a.so
           cp build/armeabi-v7a/libspoof.so module/zygisk/armeabi-v7a.so
           chmod 755 module/zygisk/arm64-v8a.so module/zygisk/armeabi-v7a.so
           
-        
           cp apps.json module/
           cp cpuinfo_spoof module/
           cp customize.sh module/
-          cp service.sh module/
           
-          
-          mkdir -p module/META-INF/com/google/android
           cat > module/META-INF/com/google/android/update-binary << 'EOF'
-          #!/sbin/sh
-          
-          umask 022
-          ui_print() { echo "$1"; }
-          
-          ui_print "**************************************"
-          ui_print "* COPG CPU Module Installer"
-          ui_print "**************************************"
-          
-          if [ ! -d "/data/adb/modules" ]; then
-            ui_print "! Magisk not found!"
-            exit 1
-          fi
-          
-          ui_print "- Extracting module files..."
-          unzip -o "$ZIPFILE" 'module.*' 'zygisk/*' 'apps.json' 'cpuinfo_spoof' 'customize.sh' 'service.sh' -d "$MODPATH" >&2
-          
-          ui_print "- Setting permissions..."
-          chmod 755 "$MODPATH/zygisk"/*
-          chmod 644 "$MODPATH/apps.json"
-          chmod 444 "$MODPATH/cpuinfo_spoof"
-          
-          ui_print "- Installation complete!"
-          ui_print "**************************************"
-          EOF
-          
+#!/sbin/sh
+
+umask 022
+ui_print() { echo "$1"; }
+
+ui_print "**************************************"
+ui_print "* COPG CPU Module Installer"
+ui_print "**************************************"
+
+if [ ! -d "/data/adb/modules" ]; then
+  ui_print "! Magisk not found!"
+  exit 1
+fi
+
+ui_print "- Extracting module files..."
+unzip -o "$ZIPFILE" 'module.*' 'zygisk/*' 'apps.json' 'cpuinfo_spoof' 'customize.sh' -d "$MODPATH" >&2
+
+ui_print "- Setting permissions..."
+chmod 755 "$MODPATH/zygisk"/*
+chmod 644 "$MODPATH/apps.json"
+chmod 444 "$MODPATH/cpuinfo_spoof"
+
+ui_print "- Installation complete!"
+ui_print "**************************************"
+EOF
+
           chmod 755 module/META-INF/com/google/android/update-binary
           
-          
           cat > module/META-INF/com/google/android/updater-script << 'EOF'
-          ui_print("COPG CPU Module");
-          EOF
+#MAGISK
+ui_print("COPG CPU Module");
+EOF
           
           VERSION="${{ github.event.inputs.custom_version || '1.0.0' }}"
           VERSION_CODE="${{ github.event.inputs.custom_version_code || '100' }}"
           cat > module/module.prop << EOF
-          id=COPG_CPU
-          name=✨ COPG CPU ✨
-          version=$VERSION
-          versionCode=$VERSION_CODE
-          author=AlirezaParsi
-          description=CPU spoofing for games (Snapdragon 8 Elite)
-          support=https://t.me/theaosp
-          updateJson=https://raw.githubusercontent.com/AlirezaParsi/COPG_CPU/main/update.json
-          minMagisk=20.4
-          EOF
+id=COPG_CPU
+name=✨ COPG CPU ✨
+version=$VERSION
+versionCode=$VERSION_CODE
+author=AlirezaParsi
+description=CPU spoofing for games (Snapdragon 8 Elite)
+support=https://t.me/theaosp
+updateJson=https://raw.githubusercontent.com/AlirezaParsi/COPG_CPU/main/update.json
+minMagisk=20.4
+EOF
 
       - name: Package module into ZIP
         run: |
@@ -200,10 +193,7 @@ jobs:
         run: |
           TAG="v${{ env.VERSION }}"
           
-          
-          gh release view "$TAG" >/dev/null 2>&1 || gh release create "$TAG" \
-            --title "COPG CPU $TAG" \
-            --notes "Built on $(date -u +'%Y-%m-%d %H:%M:%S UTC')"
+          gh release view "$TAG" >/dev/null 2>&1 || gh release create "$TAG" --title "COPG CPU $TAG" --notes "Built on $(date -u +'%Y-%m-%d %H:%M:%S UTC')"
           
           gh release upload "$TAG" "${{ env.ZIP_NAME }}" --clobber
           
