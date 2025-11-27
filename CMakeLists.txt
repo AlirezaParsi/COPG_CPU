@@ -13,7 +13,8 @@ if(NOT DEBUG)
 endif()
 
 add_library(spoof SHARED
-            module.cpp)
+            module.cpp
+            atexit.cpp)
 
 find_library(log-lib log)
 
