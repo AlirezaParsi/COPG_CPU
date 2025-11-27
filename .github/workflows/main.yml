@@ -122,7 +122,7 @@ jobs:
           VERSION_CODE="${{ github.event.inputs.custom_version_code || '100' }}"
           cat > module/module.prop << EOF
           id=COPG_CPU
-          name=✨ COPG CPU ✨
+          name=🔸 COPG CPU Spoof🔸
           version=$VERSION
           versionCode=$VERSION_CODE
           author=AlirezaParsi
