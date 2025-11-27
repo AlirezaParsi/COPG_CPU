@@ -1,0 +1,210 @@
+name: Build COPG CPU
+
+on:
+  workflow_dispatch:
+    inputs:
+      upload_to_release:
+        description: 'Upload ZIP to GitHub Release?'
+        type: boolean
+        required: true
+        default: false
+      branch:
+        description: 'Branch to build from'
+        type: string
+        required: true
+        default: 'main'
+      custom_version:
+        description: 'Custom version (e.g. 1.0.0)'
+        type: string
+        required: false
+      custom_version_code:
+        description: 'Custom version code (e.g. 100)'
+        type: string
+        required: false
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: ubuntu-24.04
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4.2.2
+        with:
+          ref: ${{ github.event.inputs.branch }}
+
+      - name: Set up JDK
+        uses: actions/setup-java@v4
+        with:
+          distribution: 'zulu'
+          java-version: '17'
+
+      - name: Set up Android SDK and NDK
+        run: |
+          echo "ANDROID_HOME=$HOME/android-sdk" >> $GITHUB_ENV
+          mkdir -p $ANDROID_HOME/cmdline-tools
+          wget https://dl.google.com/android/repository/commandlinetools-linux-11076708_latest.zip -O cmdline-tools.zip
+          unzip cmdline-tools.zip -d $ANDROID_HOME/cmdline-tools
+          if [ -d "$ANDROID_HOME/cmdline-tools/cmdline-tools" ]; then
+            mv $ANDROID_HOME/cmdline-tools/cmdline-tools $ANDROID_HOME/cmdline-tools/latest
+          elif [ -d "$ANDROID_HOME/cmdline-tools/tools" ]; then
+            mv $ANDROID_HOME/cmdline-tools/tools $ANDROID_HOME/cmdline-tools/latest
+          else
+            echo "Unexpected directory structure after unzip:"
+            ls -la $ANDROID_HOME/cmdline-tools
+            exit 1
+          fi
+          echo "$ANDROID_HOME/cmdline-tools/latest/bin" >> $GITHUB_PATH
+          $ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager "platforms;android-34" "build-tools;34.0.0"
+          mkdir -p $ANDROID_HOME/ndk
+          wget https://dl.google.com/android/repository/android-ndk-r29-linux.zip -O ndk.zip
+          unzip -q ndk.zip -d $ANDROID_HOME/ndk
+          NDK_DIR=$(find $ANDROID_HOME/ndk -maxdepth 1 -type d -name "android-ndk-r29*" | head -n 1)
+          echo "NDK_PATH=$NDK_DIR" >> $GITHUB_ENV
+          echo "Installed NDK at $NDK_DIR"
+
+      - name: Install build tools
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y build-essential cmake zip curl
+
+      - name: Fetch Zygisk Headers and JSON Library
+        run: |
+          mkdir -p zygisk include/nlohmann
+          wget -q https://raw.githubusercontent.com/topjohnwu/zygisk-module-sample/master/module/jni/zygisk.hpp -O zygisk/zygisk.hpp
+          wget -q https://github.com/nlohmann/json/releases/download/v3.12.0/json.hpp -O include/nlohmann/json.hpp
+
+      - name: Build Project (arm64-v8a)
+        uses: threeal/cmake-action@v2.1.0
+        with:
+          build-dir: build/arm64-v8a
+          args: |
+            -DCMAKE_TOOLCHAIN_FILE=${{ env.NDK_PATH }}/build/cmake/android.toolchain.cmake
+            -DANDROID_ABI=arm64-v8a
+            -DANDROID_PLATFORM=android-34
+            -DCMAKE_MAKE_PROGRAM=/usr/bin/make
+
+      - name: Build Project (armeabi-v7a)
+        uses: threeal/cmake-action@v2.1.0
+        with:
+          build-dir: build/armeabi-v7a
+          args: |
+            -DCMAKE_TOOLCHAIN_FILE=${{ env.NDK_PATH }}/build/cmake/android.toolchain.cmake
+            -DANDROID_ABI=armeabi-v7a
+            -DANDROID_PLATFORM=android-34
+            -DCMAKE_MAKE_PROGRAM=/usr/bin/make
+
+      - name: Verify builds
+        run: |
+          echo "Checking build outputs..."
+          if [ ! -f "build/arm64-v8a/libspoof.so" ] || [ ! -f "build/armeabi-v7a/libspoof.so" ]; then
+            echo "Error: Libraries not built!"
+            exit 1
+          fi
+          echo "Builds verified successfully!"
+
+      - name: Prepare module structure
+        run: |
+          mkdir -p module/zygisk module/META-INF/com/google/android
+          
+          
+          cp build/arm64-v8a/libspoof.so module/zygisk/arm64-v8a.so
+          cp build/armeabi-v7a/libspoof.so module/zygisk/armeabi-v7a.so
+          chmod 755 module/zygisk/arm64-v8a.so module/zygisk/armeabi-v7a.so
+          
+        
+          cp apps.json module/
+          cp cpuinfo_spoof module/
+          cp customize.sh module/
+          cp service.sh module/
+          
+          
+          mkdir -p module/META-INF/com/google/android
+          cat > module/META-INF/com/google/android/update-binary << 'EOF'
+          #!/sbin/sh
+          
+          umask 022
+          ui_print() { echo "$1"; }
+          
+          ui_print "**************************************"
+          ui_print "* COPG CPU Module Installer"
+          ui_print "**************************************"
+          
+          if [ ! -d "/data/adb/modules" ]; then
+            ui_print "! Magisk not found!"
+            exit 1
+          fi
+          
+          ui_print "- Extracting module files..."
+          unzip -o "$ZIPFILE" 'module.*' 'zygisk/*' 'apps.json' 'cpuinfo_spoof' 'customize.sh' 'service.sh' -d "$MODPATH" >&2
+          
+          ui_print "- Setting permissions..."
+          chmod 755 "$MODPATH/zygisk"/*
+          chmod 644 "$MODPATH/apps.json"
+          chmod 444 "$MODPATH/cpuinfo_spoof"
+          
+          ui_print "- Installation complete!"
+          ui_print "**************************************"
+          EOF
+          
+          chmod 755 module/META-INF/com/google/android/update-binary
+          
+          
+          cat > module/META-INF/com/google/android/updater-script << 'EOF'
+          ui_print("COPG CPU Module");
+          EOF
+          
+          VERSION="${{ github.event.inputs.custom_version || '1.0.0' }}"
+          VERSION_CODE="${{ github.event.inputs.custom_version_code || '100' }}"
+          cat > module/module.prop << EOF
+          id=COPG_CPU
+          name=✨ COPG CPU ✨
+          version=$VERSION
+          versionCode=$VERSION_CODE
+          author=AlirezaParsi
+          description=CPU spoofing for games (Snapdragon 8 Elite)
+          support=https://t.me/theaosp
+          updateJson=https://raw.githubusercontent.com/AlirezaParsi/COPG_CPU/main/update.json
+          minMagisk=20.4
+          EOF
+
+      - name: Package module into ZIP
+        run: |
+          VERSION=$(grep "version=" module/module.prop | cut -d'=' -f2)
+          VERSION_CODE=$(grep "versionCode=" module/module.prop | cut -d'=' -f2)
+          ZIP_NAME="COPG_CPU-v${VERSION}-${VERSION_CODE}.zip"
+          
+          cd module
+          zip -r "../$ZIP_NAME" .
+          cd ..
+          
+          echo "ZIP_NAME=$ZIP_NAME" >> $GITHUB_ENV
+          echo "VERSION=$VERSION" >> $GITHUB_ENV
+          echo "VERSION_CODE=$VERSION_CODE" >> $GITHUB_ENV
+          
+          echo "Created: $ZIP_NAME"
+          ls -lh "$ZIP_NAME"
+
+      - name: Upload Module ZIP as Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: COPG-CPU-Module
+          path: ${{ env.ZIP_NAME }}
+
+      - name: Upload ZIP to GitHub Release
+        if: github.event.inputs.upload_to_release == 'true'
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          TAG="v${{ env.VERSION }}"
+          
+          
+          gh release view "$TAG" >/dev/null 2>&1 || gh release create "$TAG" \
+            --title "COPG CPU $TAG" \
+            --notes "Built on $(date -u +'%Y-%m-%d %H:%M:%S UTC')"
+          
+          gh release upload "$TAG" "${{ env.ZIP_NAME }}" --clobber
+          
+          echo "Uploaded to release: $TAG"
