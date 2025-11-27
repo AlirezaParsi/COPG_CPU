@@ -1,0 +1,9 @@
+id=COPG_CPU
+name=✨ COPG CPU ✨
+version=1.0.0
+versionCode=100
+author=AlirezaParsi
+description=CPU spoofing for games (Snapdragon 8 elite)
+support=https://t.me/theaosp
+updateJson=https://raw.githubusercontent.com/AlirezaParsi/COPG_CPU/main/update.json
+minMagisk=20.4
